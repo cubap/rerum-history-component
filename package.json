@@ -1,1 +1,24 @@
-{\n  "name": "rerum-history-component",\n  "version": "0.1.0",\n  "description": "Web Component that visualizes RERUM /history/{id} as an interactive version tree.",\n  "type": "module",\n  "scripts": {\n    "dev": "vite",\n    "build": "vite build",\n    "preview": "vite preview"\n  },\n  "keywords": [\n    "web-components",\n    "rerum",\n    "history",\n    "iiif",\n    "versioning",\n    "visualization"\n  ],\n  "author": "cubap",\n  "license": "MIT",\n  "devDependencies": {\n    "vite": "^5.4.0"\n  }\n}
+{
+  "name": "rerum-history-component",
+  "version": "0.1.0",
+  "description": "Web Component that visualizes RERUM /history/{id} as an interactive version tree.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "web-components",
+    "rerum",
+    "history",
+    "iiif",
+    "versioning",
+    "visualization"
+  ],
+  "author": "cubap",
+  "license": "MIT",
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
