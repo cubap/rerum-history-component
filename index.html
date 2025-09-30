@@ -21,12 +21,8 @@
 
     <div class="panel">
       <label>
-        RERUM ID Base (ends with /id)
-        <input id="apiBase" placeholder="https://store.rerum.io/v1/id" value="https://store.rerum.io/v1/id" />
-      </label>
-      <label>
-        Document ID (full URL)
-        <input id="docId" placeholder="https://store.rerum.io/v1/id/..." value="https://store.rerum.io/v1/id/689e4322e25481fd578a61c7" />
+        Document URI (RERUM document with /id/ in path)
+        <input id="docUri" placeholder="https://store.rerum.io/v1/id/..." value="https://store.rerum.io/v1/id/689e4322e25481fd578a61c7" />
       </label>
       <label>
         Node label key (optional)
@@ -43,15 +39,17 @@
     <script type="module">
       const tree = document.getElementById('tree');
       document.getElementById('loadBtn').addEventListener('click', () => {
-        const apiBase = document.getElementById('apiBase').value.trim();
-        const docId = document.getElementById('docId').value.trim();
+        const docUri = document.getElementById('docUri').value.trim();
         const labelKey = document.getElementById('labelKey').value.trim() || null;
-        if (!apiBase || !docId) {
-          alert('Please provide both API Base and Document ID.');
+        if (!docUri) {
+          alert('Please provide a Document URI.');
           return;
         }
-        tree.setAttribute('api-base', apiBase);
-        tree.setAttribute('document-id', docId);
+        if (!docUri.includes('/id/')) {
+          alert('Document URI must contain "/id/" in the path.');
+          return;
+        }
+        tree.setAttribute('document-uri', docUri);
         if (labelKey) tree.setAttribute('node-label-key', labelKey);
         else tree.removeAttribute('node-label-key');
       });
