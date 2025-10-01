@@ -7,6 +7,7 @@ A lightweight Web Component that uses the RERUM `/history/{id}` endpoint to disp
 - Accessible nested `details/summary` structure
 - Configurable labels and events
 - Works with production and dev RERUM stores
+- Exports both a web component and a data class for programmatic access
 
 ## Demo
 
@@ -35,6 +36,54 @@ Open `index.html` locally with a simple static server (or `npm run dev`) and set
 - `document-id` (required): The full ID URL of the RERUM document (e.g., `https://store.rerum.io/v1/id/689e...`).
 - `node-label-key` (optional): Property to use as display label for each version. Defaults to try `label`, then `name`, then last segment of `@id`/`id`.
 - `history-base` (optional): Override the derived history base. If provided, the component uses `GET {history-base}/{encodeURIComponent(document-id)}`.
+
+## Programmatic Access with RerumHistoryData
+
+In addition to the web component, this library exports a `RerumHistoryData` class for programmatic access to version history data:
+
+```javascript
+import { RerumHistoryData } from './src/rerum-history-tree.js'
+
+const historyData = new RerumHistoryData('https://store.rerum.io/v1/id/689e4322e25481fd578a61c7')
+
+// Fetch the history data
+await historyData.fetch()
+
+// Get all version items
+const items = historyData.getItems()
+
+// Get the version graph structure
+const graph = historyData.getGraph()
+
+// Get root versions (versions with no parent)
+const roots = historyData.getRoots()
+
+// Get all version nodes as a Map (id -> item)
+const nodes = historyData.getNodes()
+
+// Get the children map (parent id -> array of child ids)
+const children = historyData.getChildren()
+
+// Get a summary for a specific version
+const summary = historyData.getSummary('https://store.rerum.io/v1/id/689e...', 'label')
+// Returns: { id, label, item, children: [...], parent }
+
+// Get summaries for all versions
+const allSummaries = historyData.getAllSummaries('label')
+```
+
+### RerumHistoryData API
+
+- `constructor(documentUri)` - Create a new instance with a RERUM document URI
+- `async fetch()` - Fetch and process history data from RERUM endpoints
+- `getItems()` - Returns array of all version items
+- `getGraph()` - Returns graph structure: `{ nodes: Map, children: Map, roots: Array, idFor: Function }`
+- `getRoots()` - Returns array of root version IDs
+- `getNodes()` - Returns Map of version ID -> version object
+- `getChildren()` - Returns Map of parent ID -> array of child IDs
+- `getSummary(id, labelKey?)` - Returns summary object for a specific version
+- `getAllSummaries(labelKey?)` - Returns array of summary objects for all versions
+- `abort()` - Cancel any ongoing fetch operation
 
 ## Events
 
