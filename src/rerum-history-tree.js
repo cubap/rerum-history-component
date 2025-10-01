@@ -559,6 +559,25 @@ export class RerumHistoryData {
       const allRawItems = [...historyRawItems, ...sinceRawItems]
       const items = allRawItems.map((it) => (typeof it === 'string' ? { '@id': it } : it))
       
+      // Add the current document if it's not already in the items
+      const currentDocumentIncluded = items.some(item => idFrom(item) === this.documentUri)
+      if (!currentDocumentIncluded) {
+        console.log('Current document not found in history/since, fetching it...')
+        try {
+          const currentRes = await fetch(this.documentUri, { 
+            signal: controller.signal, 
+            headers: { accept: 'application/json' } 
+          })
+          if (currentRes.ok) {
+            const currentDoc = await currentRes.json()
+            items.push(currentDoc)
+            console.log('Added current document to items:', idFrom(currentDoc))
+          }
+        } catch (error) {
+          console.warn('Could not fetch current document:', error)
+        }
+      }
+      
       const seen = new Set()
       const uniqueItems = items.filter((item) => {
         const id = idFrom(item)
