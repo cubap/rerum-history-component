@@ -1,7 +1,6 @@
 // RERUM History Tree Web Component
 // Fetches the appropriate /history/{id} endpoint and renders a collapsible tree.
-// If api-base ends with /id, we derive the history base by replacing /id with /history.
-// You can override with the history-base attribute.
+// Takes a document URI and replaces /id/ with /history/ to get the history endpoint.
 // Heuristics for id and parent/child linkage are documented in README.md.
 
 const TEMPLATE = document.createElement('template');
@@ -106,9 +105,7 @@ TEMPLATE.innerHTML = `
   <div class="header">
     <div><strong>RERUM History</strong></div>
     <div class="meta">
-      <span class="sr-only">Base: </span><code id="baseDisplay"></code>
-      <span>•</span>
-      <span class="sr-only">Document ID: </span><code id="docIdDisplay"></code>
+      <span class="sr-only">Document URI: </span><code id="docUriDisplay"></code>
     </div>
   </div>
   <div id="content"></div>
@@ -116,7 +113,7 @@ TEMPLATE.innerHTML = `
 
 export class RerumHistoryTree extends HTMLElement {
   static get observedAttributes() {
-    return ['api-base', 'history-base', 'document-id', 'node-label-key'];
+    return ['document-uri', 'node-label-key'];
   }
 
   constructor() {
@@ -131,16 +128,16 @@ export class RerumHistoryTree extends HTMLElement {
 
   connectedCallback() {
     this._renderHeader();
-    if (this.apiBase && this.documentId) {
+    if (this.documentUri) {
       this.refresh();
     }
   }
 
   attributeChangedCallback(name, oldVal, newVal) {
     if (oldVal === newVal) return;
-    if (name === 'api-base' || name === 'history-base' || name === 'document-id') {
+    if (name === 'document-uri') {
       this._renderHeader();
-      if (this.isConnected && this.apiBase && this.documentId) {
+      if (this.isConnected && this.documentUri) {
         this.refresh();
       }
     } else if (name === 'node-label-key' && this._state.items?.length) {
@@ -148,28 +145,12 @@ export class RerumHistoryTree extends HTMLElement {
     }
   }
 
-  get apiBase() {
-    return (this.getAttribute('api-base') || '').replace(/\/+$/, '');
+  get documentUri() {
+    return this.getAttribute('document-uri') || '';
   }
-  set apiBase(v) {
-    if (v == null) this.removeAttribute('api-base');
-    else this.setAttribute('api-base', v);
-  }
-
-  get historyBase() {
-    return (this.getAttribute('history-base') || '').replace(/\/+$/, '');
-  }
-  set historyBase(v) {
-    if (!v) this.removeAttribute('history-base');
-    else this.setAttribute('history-base', v);
-  }
-
-  get documentId() {
-    return this.getAttribute('document-id') || '';
-  }
-  set documentId(v) {
-    if (v == null) this.removeAttribute('document-id');
-    else this.setAttribute('document-id', v);
+  set documentUri(v) {
+    if (v == null) this.removeAttribute('document-uri');
+    else this.setAttribute('document-uri', v);
   }
 
   get nodeLabelKey() {
@@ -180,25 +161,14 @@ export class RerumHistoryTree extends HTMLElement {
     else this.setAttribute('node-label-key', v);
   }
 
-  _deriveHistoryBase() {
-    if (this.historyBase) return this.historyBase;
-    const base = this.apiBase;
-    if (!base) return '';
-    // If base ends with /id, replace with /history
-    const replaced = base.replace(/\/id\/?$/, '/history');
-    if (replaced !== base) return replaced;
-    // Otherwise, append /history
-    return `${base}/history`;
-  }
-
   async refresh() {
-    if (!this.apiBase || !this.documentId) return;
+    if (!this.documentUri) return;
     this._clearAbort();
     const controller = new AbortController();
     this._abort = controller;
 
-    const historyBase = this._deriveHistoryBase();
-    const url = `${historyBase}/${encodeURIComponent(this.documentId)}`;
+    // Replace /id/ with /history/ to get the history endpoint
+    const url = this.documentUri.replace('/id/', '/history/');
     this._setContent(this._infoEl(`Loading history…`));
 
     try {
@@ -232,9 +202,7 @@ export class RerumHistoryTree extends HTMLElement {
 
   _renderHeader() {
     const root = this.shadowRoot;
-    const base = this.historyBase || this.apiBase;
-    root.getElementById('baseDisplay').textContent = base || '(no base)';
-    root.getElementById('docIdDisplay').textContent = this.documentId || '(no document id)';
+    root.getElementById('docUriDisplay').textContent = this.documentUri || '(no document URI)';
   }
 
   _renderTree() {
@@ -336,7 +304,7 @@ export class RerumHistoryTree extends HTMLElement {
         const segs = u.pathname.split('/').filter(Boolean);
         if (segs.length) return segs[segs.length - 1];
       } catch {
-        const segs = String(id).split(/[/#!]/).filter(Boolean);
+        const segs = String(id).split(/[\/#!]/).filter(Boolean);
         if (segs.length) return segs[segs.length - 1];
       }
     }

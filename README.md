@@ -8,12 +8,6 @@ A lightweight Web Component that uses the RERUM `/history/{id}` endpoint to disp
 - Configurable labels and events
 - Works with production and dev RERUM stores
 
-## Live Demo
-
-Try the component at [https://cubap.github.io/rerum-history-component/](https://cubap.github.io/rerum-history-component/)
-
-The demo is automatically deployed from the `main` branch via GitHub Pages.
-
 ## Demo
 
 Open `index.html` locally with a simple static server (or `npm run dev`) and set your `api-base` and `document-id`.
