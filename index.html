@@ -37,32 +37,35 @@
     <rerum-history-tree id="tree"></rerum-history-tree>
 
     <script type="module">
-      const tree = document.getElementById('tree');
+      const tree = document.getElementById('tree')
       document.getElementById('loadBtn').addEventListener('click', () => {
-        const docUri = document.getElementById('docUri').value.trim();
-        const labelKey = document.getElementById('labelKey').value.trim() || null;
+        const docUri = document.getElementById('docUri').value.trim()
+        const labelKey = document.getElementById('labelKey').value.trim() || null
         if (!docUri) {
-          alert('Please provide a Document URI.');
-          return;
+          alert('Please provide a Document URI.')
+          return
         }
         if (!docUri.includes('/id/')) {
-          alert('Document URI must contain "/id/" in the path.');
-          return;
+          alert('Document URI must contain "/id/" in the path.')
+          return
         }
-        tree.setAttribute('document-uri', docUri);
-        if (labelKey) tree.setAttribute('node-label-key', labelKey);
-        else tree.removeAttribute('node-label-key');
-      });
+        tree.setAttribute('document-uri', docUri)
+        if (labelKey) {
+          tree.setAttribute('node-label-key', labelKey)
+          return
+        }
+        tree.removeAttribute('node-label-key')
+      })
 
       tree.addEventListener('nodeclick', (e) => {
-        console.log('Node clicked:', e.detail);
-      });
+        console.log('Node clicked:', e.detail)
+      })
       tree.addEventListener('loaded', (e) => {
-        console.log('Loaded:', e.detail);
-      });
+        console.log('Loaded:', e.detail)
+      })
       tree.addEventListener('error', (e) => {
-        console.error('Error:', e.detail.error);
-      });
+        console.error('Error:', e.detail.error)
+      })
     </script>
   </body>
 </html>
