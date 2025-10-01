@@ -49,6 +49,9 @@ Open `index.html` locally with a simple static server (or `npm run dev`) and set
 
 The component fetches:
 - `GET {history-base or derived}/{$ENCODED_DOCUMENT_ID}`
+- `GET {since-base or derived}/{$ENCODED_DOCUMENT_ID}`
+
+The component fetches both the history (all previous versions) and since (all later versions) endpoints to build a complete version tree. The /since endpoint may return a 404 if there are no future versions, which is handled gracefully.
 
 It attempts to infer the version tree from common RERUM history shapes:
 - Version identity: `@id` or `id` or `_id` (falls back to `__rerum.history.id`/`__rerum.id`)
@@ -56,6 +59,8 @@ It attempts to infer the version tree from common RERUM history shapes:
 - Forward linkage: `__rerum.history.next` (array of ids)
 
 If the service returns an array of bare strings (IDs), the component normalizes them to `{ "@id": "..." }`. If neither linkage appears, items render as a flat list (rooted).
+
+Clicking on any node in the tree will navigate to that version by updating the `document-uri` attribute, which triggers a refresh to display the tree for that version.
 
 ## Development
 

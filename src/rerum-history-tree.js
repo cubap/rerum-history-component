@@ -1,6 +1,6 @@
 // RERUM History Tree Web Component
-// Fetches the appropriate /history/{id} endpoint and renders a collapsible tree.
-// Takes a document URI and replaces /id/ with /history/ to get the history endpoint.
+// Fetches the appropriate /history/{id} and /since/{id} endpoints and renders a collapsible tree.
+// Takes a document URI and replaces /id/ with /history/ and /since/ to get both endpoints.
 // Heuristics for id and parent/child linkage are documented in README.md.
 
 const TEMPLATE = document.createElement('template')
@@ -177,28 +177,56 @@ export class RerumHistoryTree extends HTMLElement {
     const controller = new AbortController()
     this._abort = controller
 
-    // Replace /id/ with /history/ to get the history endpoint
-    const url = this.documentUri.replace('/id/', '/history/')
+    // Replace /id/ with /history/ and /since/ to get both endpoints
+    const historyUrl = this.documentUri.replace('/id/', '/history/')
+    const sinceUrl = this.documentUri.replace('/id/', '/since/')
     this._setContent(this._infoEl(`Loading history…`))
 
     try {
-      const res = await fetch(url, { signal: controller.signal, headers: { accept: 'application/json' } })
-      if (!res.ok) throw new Error(`Request failed (${res.status}) ${res.statusText}`)
-      const data = await res.json()
+      // Fetch both history and since endpoints in parallel
+      const [historyRes, sinceRes] = await Promise.all([
+        fetch(historyUrl, { signal: controller.signal, headers: { accept: 'application/json' } }),
+        fetch(sinceUrl, { signal: controller.signal, headers: { accept: 'application/json' } })
+      ])
 
-      const rawItems = Array.isArray(data) ? data : (data?.items ?? data?.history ?? [])
-      if (!Array.isArray(rawItems)) {
-        throw new Error('Unexpected response format (expected array).')
+      if (!historyRes.ok) throw new Error(`History request failed (${historyRes.status}) ${historyRes.statusText}`)
+      
+      const historyData = await historyRes.json()
+      const historyRawItems = Array.isArray(historyData) ? historyData : (historyData?.items ?? historyData?.history ?? [])
+      if (!Array.isArray(historyRawItems)) {
+        throw new Error('Unexpected history response format (expected array).')
       }
 
-      const items = rawItems.map((it) => (typeof it === 'string' ? { '@id': it } : it))
-      this._state.items = items
-      this._state.graph = buildGraph(items)
+      // Since endpoint might fail if there are no future versions, handle gracefully
+      let sinceRawItems = []
+      if (sinceRes.ok) {
+        const sinceData = await sinceRes.json()
+        sinceRawItems = Array.isArray(sinceData) ? sinceData : (sinceData?.items ?? sinceData?.since ?? [])
+        if (!Array.isArray(sinceRawItems)) {
+          sinceRawItems = []
+        }
+      }
+
+      // Merge both arrays, removing duplicates based on ID
+      const allRawItems = [...historyRawItems, ...sinceRawItems]
+      const items = allRawItems.map((it) => (typeof it === 'string' ? { '@id': it } : it))
+      
+      // Deduplicate by ID
+      const seen = new Set()
+      const uniqueItems = items.filter((item) => {
+        const id = idFrom(item)
+        if (!id || seen.has(id)) return false
+        seen.add(id)
+        return true
+      })
+
+      this._state.items = uniqueItems
+      this._state.graph = buildGraph(uniqueItems)
 
       this._renderTree()
 
       this.dispatchEvent(new CustomEvent('loaded', {
-        detail: { count: items.length, roots: this._state.graph.roots },
+        detail: { count: uniqueItems.length, roots: this._state.graph.roots },
         bubbles: true
       }))
     } catch (error) {
@@ -262,6 +290,10 @@ export class RerumHistoryTree extends HTMLElement {
     summary.appendChild(label)
     summary.appendChild(idEl)
     summary.addEventListener('click', (e) => {
+      // Navigate to the clicked version by updating document-uri
+      if (id && id !== this.documentUri) {
+        this.documentUri = id
+      }
       this.dispatchEvent(new CustomEvent('nodeclick', {
         detail: { id, item },
         bubbles: true
@@ -291,6 +323,10 @@ export class RerumHistoryTree extends HTMLElement {
       <span class="id meta">(${escapeHtml(id)})</span>
     `
     leaf.addEventListener('click', (e) => {
+      // Navigate to the clicked version by updating document-uri
+      if (id && id !== this.documentUri) {
+        this.documentUri = id
+      }
       this.dispatchEvent(new CustomEvent('nodeclick', {
         detail: { id, item },
         bubbles: true
