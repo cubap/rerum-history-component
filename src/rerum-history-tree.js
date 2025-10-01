@@ -435,6 +435,68 @@ export class RerumHistoryTree extends HTMLElement {
       this._historyData = null
     }
   }
+
+  _selectVersion(item, id) {
+    // Clear previous selection
+    this._clearSelection()
+    
+    this._state.selectedItem = item
+    this._state.selectedId = id
+    this._showVersionDetails(item)
+    
+    // Mark the current element as selected
+    const element = this.shadowRoot.querySelector(`[data-id="${id}"]`)
+    if (element) {
+      element.classList.add('selected')
+    }
+  }
+
+  _clearSelection() {
+    const root = this.shadowRoot
+    const selected = root.querySelectorAll('.selected')
+    selected.forEach(el => el.classList.remove('selected'))
+  }
+
+  _showVersionDetails(item) {
+    const panel = this.shadowRoot.getElementById('detailsPanel')
+    const table = this.shadowRoot.getElementById('keyValueTable')
+    
+    if (!item || typeof item !== 'object') {
+      panel.classList.add('hidden')
+      return
+    }
+
+    // Create filtered object without __rerum property
+    const filteredItem = {}
+    for (const [key, value] of Object.entries(item)) {
+      if (key !== '__rerum') {
+        filteredItem[key] = value
+      }
+    }
+
+    // Clear existing content
+    table.innerHTML = ''
+
+    // Add each key-value pair
+    for (const [key, value] of Object.entries(filteredItem)) {
+      const dt = document.createElement('dt')
+      dt.textContent = key
+      const dd = document.createElement('dd')
+      
+      if (value == null) {
+        dd.textContent = 'null'
+      } else if (typeof value === 'object') {
+        dd.textContent = JSON.stringify(value, null, 2)
+      } else {
+        dd.textContent = String(value)
+      }
+      
+      table.appendChild(dt)
+      table.appendChild(dd)
+    }
+
+    panel.classList.remove('hidden')
+  }
 }
 
 customElements.define('rerum-history-tree', RerumHistoryTree)
@@ -627,68 +689,6 @@ export class RerumHistoryData {
       this._abort.abort()
       this._abort = null
     }
-  }
-
-  _selectVersion(item, id) {
-    // Clear previous selection
-    this._clearSelection()
-    
-    this._state.selectedItem = item
-    this._state.selectedId = id
-    this._showVersionDetails(item)
-    
-    // Mark the current element as selected
-    const element = this.shadowRoot.querySelector(`[data-id="${id}"]`)
-    if (element) {
-      element.classList.add('selected')
-    }
-  }
-
-  _clearSelection() {
-    const root = this.shadowRoot
-    const selected = root.querySelectorAll('.selected')
-    selected.forEach(el => el.classList.remove('selected'))
-  }
-
-  _showVersionDetails(item) {
-    const panel = this.shadowRoot.getElementById('detailsPanel')
-    const table = this.shadowRoot.getElementById('keyValueTable')
-    
-    if (!item || typeof item !== 'object') {
-      panel.classList.add('hidden')
-      return
-    }
-
-    // Create filtered object without __rerum property
-    const filteredItem = {}
-    for (const [key, value] of Object.entries(item)) {
-      if (key !== '__rerum') {
-        filteredItem[key] = value
-      }
-    }
-
-    // Clear existing content
-    table.innerHTML = ''
-
-    // Add each key-value pair
-    for (const [key, value] of Object.entries(filteredItem)) {
-      const dt = document.createElement('dt')
-      dt.textContent = key
-      const dd = document.createElement('dd')
-      
-      if (value == null) {
-        dd.textContent = 'null'
-      } else if (typeof value === 'object') {
-        dd.textContent = JSON.stringify(value, null, 2)
-      } else {
-        dd.textContent = String(value)
-      }
-      
-      table.appendChild(dt)
-      table.appendChild(dd)
-    }
-
-    panel.classList.remove('hidden')
   }
 }
 
