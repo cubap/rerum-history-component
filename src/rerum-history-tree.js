@@ -747,13 +747,18 @@ function buildGraph(items) {
   }
 
   // Convert child sets to arrays and filter to known nodes, then sort by timestamp
+  // Also build a filtered set of children to correctly identify roots
   const childrenArr = new Map()
+  const allChildrenFiltered = new Set()
   for (const [pid, set] of children.entries()) {
+    if (!nodes.has(pid)) continue // Skip parents that don't exist in the dataset
     const childIds = Array.from(set).filter((cid) => nodes.has(cid))
+    if (childIds.length === 0) continue
     const childItems = childIds.map(id => nodes.get(id))
     const sortedChildItems = sortByTimestamp(childItems)
     const sortedChildIds = sortedChildItems.map(item => idFor(item)).filter(Boolean)
     childrenArr.set(pid, sortedChildIds)
+    sortedChildIds.forEach(cid => allChildrenFiltered.add(cid))
   }
 
   // Roots = nodes with __rerum.history.prime: "root", fallback to nodes that are not children
@@ -789,8 +794,9 @@ function buildGraph(items) {
   } else if (primeRootIds.size > 0) {
     roots.push(...Array.from(primeRootIds))
   } else {
+    // Use filtered children set to identify roots (nodes not in any existing parent's children)
     for (const id of nodes.keys()) {
-      if (!allChildren.has(id)) roots.push(id)
+      if (!allChildrenFiltered.has(id)) roots.push(id)
     }
   }
 
