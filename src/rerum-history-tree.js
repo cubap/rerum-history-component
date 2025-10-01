@@ -202,7 +202,7 @@ export class RerumHistoryTree extends HTMLElement {
       selectedItem: null,
       selectedId: null
     }
-    this._abort = null
+    this._historyData = null
   }
 
   connectedCallback() {
@@ -253,67 +253,27 @@ export class RerumHistoryTree extends HTMLElement {
   async refresh() {
     if (!this.documentUri) return
     this._clearAbort()
-    const controller = new AbortController()
-    this._abort = controller
-
-    // Replace /id/ with /history/ and /since/ to get both endpoints
-    const historyUrl = this.documentUri.replace('/id/', '/history/')
-    const sinceUrl = this.documentUri.replace('/id/', '/since/')
+    
+    const historyData = new RerumHistoryData(this.documentUri)
+    this._historyData = historyData
     this._setContent(this._infoEl(`Loading history…`))
 
     try {
-      // Fetch both history and since endpoints in parallel
-      const [historyRes, sinceRes] = await Promise.all([
-        fetch(historyUrl, { signal: controller.signal, headers: { accept: 'application/json' } }),
-        fetch(sinceUrl, { signal: controller.signal, headers: { accept: 'application/json' } })
-      ])
+      await historyData.fetch()
 
-      if (!historyRes.ok) throw new Error(`History request failed (${historyRes.status}) ${historyRes.statusText}`)
-      
-      const historyData = await historyRes.json()
-      const historyRawItems = Array.isArray(historyData) ? historyData : (historyData?.items ?? historyData?.history ?? [])
-      if (!Array.isArray(historyRawItems)) {
-        throw new Error('Unexpected history response format (expected array).')
-      }
-
-      // Since endpoint might fail if there are no future versions, handle gracefully
-      let sinceRawItems = []
-      if (sinceRes.ok) {
-        const sinceData = await sinceRes.json()
-        sinceRawItems = Array.isArray(sinceData) ? sinceData : (sinceData?.items ?? sinceData?.since ?? [])
-        if (!Array.isArray(sinceRawItems)) {
-          sinceRawItems = []
-        }
-      }
-
-      // Merge both arrays, removing duplicates based on ID
-      const allRawItems = [...historyRawItems, ...sinceRawItems]
-      const items = allRawItems.map((it) => (typeof it === 'string' ? { '@id': it } : it))
-      
-      // Deduplicate by ID
-      const seen = new Set()
-      const uniqueItems = items.filter((item) => {
-        const id = idFrom(item)
-        if (!id || seen.has(id)) return false
-        seen.add(id)
-        return true
-      })
-
-      this._state.items = uniqueItems
-      this._state.graph = buildGraph(uniqueItems)
+      this._state.items = historyData.getItems()
+      this._state.graph = historyData.getGraph()
 
       this._renderTree()
 
       this.dispatchEvent(new CustomEvent('loaded', {
-        detail: { count: uniqueItems.length, roots: this._state.graph.roots },
+        detail: { count: this._state.items.length, roots: this._state.graph.roots },
         bubbles: true
       }))
     } catch (error) {
       if (error.name === 'AbortError') return
       this._setContent(this._errorEl(error))
       this.dispatchEvent(new CustomEvent('error', { detail: { error }, bubbles: true }))
-    } finally {
-      this._clearAbort()
     }
   }
 
@@ -470,6 +430,199 @@ export class RerumHistoryTree extends HTMLElement {
     content.appendChild(node)
   }
   _clearAbort() {
+    if (this._historyData) {
+      this._historyData.abort()
+      this._historyData = null
+    }
+  }
+}
+
+customElements.define('rerum-history-tree', RerumHistoryTree)
+
+/**
+ * RerumHistoryData - A class for fetching and managing RERUM version history data
+ * Can be used independently of the web component to access version history information
+ */
+export class RerumHistoryData {
+  constructor(documentUri) {
+    this.documentUri = documentUri
+    this.items = []
+    this.graph = null
+    this._abort = null
+  }
+
+  /**
+   * Fetch history and since data for the document URI
+   * @returns {Promise<void>}
+   */
+  async fetch() {
+    if (!this.documentUri) {
+      throw new Error('Document URI is required')
+    }
+
+    if (this._abort) {
+      this._abort.abort()
+    }
+    const controller = new AbortController()
+    this._abort = controller
+
+    const historyUrl = this.documentUri.replace('/id/', '/history/')
+    const sinceUrl = this.documentUri.replace('/id/', '/since/')
+
+    try {
+      const [historyRes, sinceRes] = await Promise.all([
+        fetch(historyUrl, { signal: controller.signal, headers: { accept: 'application/json' } }),
+        fetch(sinceUrl, { signal: controller.signal, headers: { accept: 'application/json' } })
+      ])
+
+      if (!historyRes.ok) {
+        throw new Error(`History request failed (${historyRes.status}) ${historyRes.statusText}`)
+      }
+      
+      const historyData = await historyRes.json()
+      const historyRawItems = Array.isArray(historyData) ? historyData : (historyData?.items ?? historyData?.history ?? [])
+      if (!Array.isArray(historyRawItems)) {
+        throw new Error('Unexpected history response format (expected array).')
+      }
+
+      let sinceRawItems = []
+      if (sinceRes.ok) {
+        const sinceData = await sinceRes.json()
+        sinceRawItems = Array.isArray(sinceData) ? sinceData : (sinceData?.items ?? sinceData?.since ?? [])
+        if (!Array.isArray(sinceRawItems)) {
+          sinceRawItems = []
+        }
+      }
+
+      const allRawItems = [...historyRawItems, ...sinceRawItems]
+      const items = allRawItems.map((it) => (typeof it === 'string' ? { '@id': it } : it))
+      
+      const seen = new Set()
+      const uniqueItems = items.filter((item) => {
+        const id = idFrom(item)
+        if (!id || seen.has(id)) return false
+        seen.add(id)
+        return true
+      })
+
+      this.items = uniqueItems
+      this.graph = buildGraph(uniqueItems)
+    } finally {
+      this._abort = null
+    }
+  }
+
+  /**
+   * Get all version items
+   * @returns {Array}
+   */
+  getItems() {
+    return this.items
+  }
+
+  /**
+   * Get the version graph structure
+   * @returns {Object} { nodes: Map, children: Map, roots: Array, idFor: Function }
+   */
+  getGraph() {
+    return this.graph
+  }
+
+  /**
+   * Get root version IDs (versions with no parent)
+   * @returns {Array<string>}
+   */
+  getRoots() {
+    return this.graph?.roots ?? []
+  }
+
+  /**
+   * Get a map of all version nodes by ID
+   * @returns {Map<string, Object>}
+   */
+  getNodes() {
+    return this.graph?.nodes ?? new Map()
+  }
+
+  /**
+   * Get children map (parent ID -> array of child IDs)
+   * @returns {Map<string, Array<string>>}
+   */
+  getChildren() {
+    return this.graph?.children ?? new Map()
+  }
+
+  /**
+   * Get summary for a specific version
+   * @param {string} id - Version ID
+   * @param {string} labelKey - Optional key to use for label
+   * @returns {Object} { id, label, item, children, parent }
+   */
+  getSummary(id, labelKey) {
+    const nodes = this.getNodes()
+    const children = this.getChildren()
+    const item = nodes.get(id)
+    
+    if (!item) return null
+
+    const label = this._getLabelFor(item, id, labelKey)
+    const childIds = children.get(id) ?? []
+    const parent = this._findParent(id)
+
+    return {
+      id,
+      label,
+      item,
+      children: childIds,
+      parent
+    }
+  }
+
+  /**
+   * Get summaries for all versions
+   * @param {string} labelKey - Optional key to use for labels
+   * @returns {Array<Object>}
+   */
+  getAllSummaries(labelKey) {
+    const nodes = this.getNodes()
+    return Array.from(nodes.keys()).map(id => this.getSummary(id, labelKey))
+  }
+
+  _getLabelFor(item, id, labelKey) {
+    const key = labelKey?.trim()
+    if (key && item && typeof item === 'object' && key in item) {
+      const v = item[key]
+      if (v != null) return String(v)
+    }
+    if (item?.label) return String(item.label)
+    if (item?.name) return String(item.name)
+    if (id) {
+      try {
+        const u = new URL(String(id))
+        const segs = u.pathname.split('/').filter(Boolean)
+        if (segs.length) return segs[segs.length - 1]
+      } catch {
+        const segs = String(id).split(/[/#!]/).filter(Boolean)
+        if (segs.length) return segs[segs.length - 1]
+      }
+    }
+    return 'version'
+  }
+
+  _findParent(childId) {
+    const children = this.getChildren()
+    for (const [parentId, childIds] of children.entries()) {
+      if (childIds.includes(childId)) {
+        return parentId
+      }
+    }
+    return null
+  }
+
+  /**
+   * Cancel any ongoing fetch operation
+   */
+  abort() {
     if (this._abort) {
       this._abort.abort()
       this._abort = null
@@ -538,8 +691,6 @@ export class RerumHistoryTree extends HTMLElement {
     panel.classList.remove('hidden')
   }
 }
-
-customElements.define('rerum-history-tree', RerumHistoryTree)
 
 /**
  * Build a graph from items using RERUM history heuristics:
