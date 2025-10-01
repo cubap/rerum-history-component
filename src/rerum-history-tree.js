@@ -21,6 +21,51 @@ TEMPLATE.innerHTML = `
       color: #111827; /* gray-900 */
       background: var(--rht-bg);
     }
+    .container {
+      display: flex;
+      gap: 1rem;
+    }
+    .tree-section {
+      flex: 1;
+      min-width: 0;
+    }
+    .details-panel {
+      width: 300px;
+      border-left: 2px solid var(--rht-border);
+      padding-left: 1rem;
+      font-size: 0.9em;
+    }
+    .details-panel h3 {
+      margin: 0 0 0.5rem 0;
+      font-size: 1em;
+      color: var(--rht-accent);
+    }
+    .details-panel.hidden {
+      display: none;
+    }
+    .key-value-table {
+      margin: 0;
+    }
+    .key-value-table dt {
+      font-weight: 500;
+      color: #374151;
+      margin-top: 0.5rem;
+      margin-bottom: 0.125rem;
+    }
+    .key-value-table dt:first-child {
+      margin-top: 0;
+    }
+    .key-value-table dd {
+      margin: 0 0 0 1rem;
+      color: var(--rht-muted);
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+      background: #f8f9fa;
+      padding: 0.25rem 0.5rem;
+      border-radius: 3px;
+      white-space: pre-wrap;
+    }
     .header {
       display: flex;
       gap: .5rem;
@@ -46,7 +91,7 @@ TEMPLATE.innerHTML = `
     }
     summary {
       list-style: none;
-      cursor: pointer;
+      cursor: default;
       padding: .1rem .25rem;
       border-radius: 6px;
       display: inline-flex;
@@ -61,6 +106,7 @@ TEMPLATE.innerHTML = `
       transform: rotate(-90deg);
       transition: transform .12s ease;
       color: var(--rht-muted);
+      cursor: pointer;
     }
     details[open] > summary .twisty {
       transform: rotate(0deg);
@@ -68,10 +114,24 @@ TEMPLATE.innerHTML = `
     }
     .label {
       font-weight: 500;
+      cursor: pointer;
+    }
+    .label:hover {
+      text-decoration: underline;
     }
     .meta {
       color: var(--rht-muted);
       font-size: 0.92em;
+    }
+    .time-ago {
+      margin-left: 0.5rem;
+      font-style: italic;
+    }
+    .id {
+      cursor: pointer;
+    }
+    .id:hover {
+      text-decoration: underline;
     }
     .leaf {
       margin: .125rem 0 .125rem 1.5rem;
@@ -79,6 +139,15 @@ TEMPLATE.innerHTML = `
       border-radius: 6px;
     }
     .leaf:hover { background: var(--rht-hover); }
+    .leaf.selected,
+    details.selected > summary { 
+      background: var(--rht-accent);
+      color: white;
+    }
+    .leaf.selected .meta,
+    details.selected > summary .meta { 
+      color: rgba(255, 255, 255, 0.8);
+    }
     .id {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       color: #374151;
@@ -108,7 +177,15 @@ TEMPLATE.innerHTML = `
       <span class="sr-only">Document URI: </span><code id="docUriDisplay"></code>
     </div>
   </div>
-  <div id="content"></div>
+  <div class="container">
+    <div class="tree-section">
+      <div id="content"></div>
+    </div>
+    <div class="details-panel hidden" id="detailsPanel">
+      <h3>Selected Version</h3>
+      <dl class="key-value-table" id="keyValueTable"></dl>
+    </div>
+  </div>
 `
 
 export class RerumHistoryTree extends HTMLElement {
@@ -121,7 +198,9 @@ export class RerumHistoryTree extends HTMLElement {
     this.attachShadow({ mode: 'open' }).appendChild(TEMPLATE.content.cloneNode(true))
     this._state = {
       items: [],
-      graph: null
+      graph: null,
+      selectedItem: null,
+      selectedId: null
     }
     this._historyData = null
   }
@@ -228,11 +307,18 @@ export class RerumHistoryTree extends HTMLElement {
     }
 
     this._setContent(container)
+    
+    // Auto-select the current document version if it exists in the tree
+    if (this.documentUri && nodes.has(this.documentUri)) {
+      const currentItem = nodes.get(this.documentUri)
+      this._selectVersion(currentItem, this.documentUri)
+    }
   }
 
   _branchEl(item, id, childrenMap, nodes, idFor, depth) {
     const kids = childrenMap.get(id) ?? []
     const details = document.createElement('details')
+    details.setAttribute('data-id', id)
     if (depth < 2) details.open = true
 
     const summary = document.createElement('summary')
@@ -242,24 +328,32 @@ export class RerumHistoryTree extends HTMLElement {
     const label = document.createElement('span')
     label.className = 'label'
     label.textContent = this._labelFor(item, id)
+    const timeAgo = document.createElement('span')
+    timeAgo.className = 'time-ago meta'
+    timeAgo.textContent = formatTimeAgo(getLatestTimestamp(item))
     const idEl = document.createElement('span')
     idEl.className = 'id meta'
     idEl.textContent = `(${id})`
 
     summary.appendChild(twisty)
     summary.appendChild(label)
+    summary.appendChild(timeAgo)
     summary.appendChild(idEl)
-    summary.addEventListener('click', (e) => {
-      // Navigate to the clicked version by updating document-uri
-      if (id && id !== this.documentUri) {
-        this.documentUri = id
-      }
-      this.dispatchEvent(new CustomEvent('nodeclick', {
+
+    // Add click handlers to label and ID for selection
+    const handleSelection = (e) => {
+      // Select this version to show in details panel
+      this._selectVersion(item, id)
+      
+      this.dispatchEvent(new CustomEvent('versionselected', {
         detail: { id, item },
         bubbles: true
       }))
       e.stopPropagation()
-    })
+    }
+    
+    label.addEventListener('click', handleSelection)
+    idEl.addEventListener('click', handleSelection)
 
     details.appendChild(summary)
 
@@ -278,16 +372,17 @@ export class RerumHistoryTree extends HTMLElement {
   _leafEl(item, id) {
     const leaf = document.createElement('div')
     leaf.className = 'leaf'
+    leaf.setAttribute('data-id', id)
     leaf.innerHTML = `
       <span class="label">${escapeHtml(this._labelFor(item, id))}</span>
+      <span class="time-ago meta">${escapeHtml(formatTimeAgo(getLatestTimestamp(item)))}</span>
       <span class="id meta">(${escapeHtml(id)})</span>
     `
     leaf.addEventListener('click', (e) => {
-      // Navigate to the clicked version by updating document-uri
-      if (id && id !== this.documentUri) {
-        this.documentUri = id
-      }
-      this.dispatchEvent(new CustomEvent('nodeclick', {
+      // Select this version to show in details panel
+      this._selectVersion(item, id)
+      
+      this.dispatchEvent(new CustomEvent('versionselected', {
         detail: { id, item },
         bubbles: true
       }))
@@ -533,13 +628,78 @@ export class RerumHistoryData {
       this._abort = null
     }
   }
+
+  _selectVersion(item, id) {
+    // Clear previous selection
+    this._clearSelection()
+    
+    this._state.selectedItem = item
+    this._state.selectedId = id
+    this._showVersionDetails(item)
+    
+    // Mark the current element as selected
+    const element = this.shadowRoot.querySelector(`[data-id="${id}"]`)
+    if (element) {
+      element.classList.add('selected')
+    }
+  }
+
+  _clearSelection() {
+    const root = this.shadowRoot
+    const selected = root.querySelectorAll('.selected')
+    selected.forEach(el => el.classList.remove('selected'))
+  }
+
+  _showVersionDetails(item) {
+    const panel = this.shadowRoot.getElementById('detailsPanel')
+    const table = this.shadowRoot.getElementById('keyValueTable')
+    
+    if (!item || typeof item !== 'object') {
+      panel.classList.add('hidden')
+      return
+    }
+
+    // Create filtered object without __rerum property
+    const filteredItem = {}
+    for (const [key, value] of Object.entries(item)) {
+      if (key !== '__rerum') {
+        filteredItem[key] = value
+      }
+    }
+
+    // Clear existing content
+    table.innerHTML = ''
+
+    // Add each key-value pair
+    for (const [key, value] of Object.entries(filteredItem)) {
+      const dt = document.createElement('dt')
+      dt.textContent = key
+      const dd = document.createElement('dd')
+      
+      if (value == null) {
+        dd.textContent = 'null'
+      } else if (typeof value === 'object') {
+        dd.textContent = JSON.stringify(value, null, 2)
+      } else {
+        dd.textContent = String(value)
+      }
+      
+      table.appendChild(dt)
+      table.appendChild(dd)
+    }
+
+    panel.classList.remove('hidden')
+  }
 }
 
 /**
- * Build a graph from items using heuristics:
+ * Build a graph from items using RERUM history heuristics:
  * - idFor: @id || id || _id (falls back to __rerum.history.id || __rerum.id)
- * - parentFrom(item): __rerum.history.previous (string or object)
- * - nextFrom(item): __rerum.history.next (array of ids)
+ * - parentFrom(item): __rerum.history.previous (string or object) - the @id/id of the directly earlier version
+ * - nextFrom(item): __rerum.history.next (array of ids) - branches to more recent versions
+ * - primeFrom(item): __rerum.history.prime (string) - "root" indicates the very first version
+ * - Root detection: Documents with __rerum.history.prime: "root" are preferred as roots,
+ *   fallback to orphaned nodes (those not referenced as children)
  */
 function buildGraph(items) {
   const nodes = new Map()
@@ -586,16 +746,58 @@ function buildGraph(items) {
     }
   }
 
-  // Convert child sets to arrays and filter to known nodes
+  // Convert child sets to arrays and filter to known nodes, then sort by timestamp
+  // Also build a filtered set of children to correctly identify roots
   const childrenArr = new Map()
+  const allChildrenFiltered = new Set()
   for (const [pid, set] of children.entries()) {
-    childrenArr.set(pid, Array.from(set).filter((cid) => nodes.has(cid)))
+    if (!nodes.has(pid)) continue // Skip parents that don't exist in the dataset
+    const childIds = Array.from(set).filter((cid) => nodes.has(cid))
+    if (childIds.length === 0) continue
+    const childItems = childIds.map(id => nodes.get(id))
+    const sortedChildItems = sortByTimestamp(childItems)
+    const sortedChildIds = sortedChildItems.map(item => idFor(item)).filter(Boolean)
+    childrenArr.set(pid, sortedChildIds)
+    sortedChildIds.forEach(cid => allChildrenFiltered.add(cid))
   }
 
-  // Roots = nodes that are not a child of any other node
+  // Roots = nodes with __rerum.history.prime: "root", fallback to nodes that are not children
   const roots = []
-  for (const id of nodes.keys()) {
-    if (!allChildren.has(id)) roots.push(id)
+  const primeRoots = []
+  const primeRootIds = new Set()
+  
+  // First, find documents marked as prime roots
+  for (const [id, item] of nodes.entries()) {
+    if (isPrimeRoot(item)) {
+      primeRoots.push(id)
+      primeRootIds.add(id)
+    }
+  }
+  
+  // Also look for documents that point to a prime root (in case the actual root isn't in the dataset)
+  if (primeRoots.length === 0) {
+    for (const [id, item] of nodes.entries()) {
+      const prime = primeFrom(item)
+      if (prime && typeof prime === 'string' && prime !== 'root') {
+        // This document points to a prime root that might not be in our dataset
+        // If we don't have that prime root, this could be the effective root
+        if (!nodes.has(prime)) {
+          primeRootIds.add(id)
+        }
+      }
+    }
+  }
+  
+  // If we have prime roots, use them; otherwise fall back to orphaned nodes
+  if (primeRoots.length > 0) {
+    roots.push(...primeRoots)
+  } else if (primeRootIds.size > 0) {
+    roots.push(...Array.from(primeRootIds))
+  } else {
+    // Use filtered children set to identify roots (nodes not in any existing parent's children)
+    for (const id of nodes.keys()) {
+      if (!allChildrenFiltered.has(id)) roots.push(id)
+    }
   }
 
   return { nodes, children: childrenArr, roots, idFor }
@@ -621,6 +823,15 @@ function nextFrom(item) {
   return Array.isArray(nxt) ? nxt : (typeof nxt === 'string' ? [nxt] : null)
 }
 
+function primeFrom(item) {
+  return item?.__rerum?.history?.prime ?? item?.history?.prime ?? item?.__rerum?.prime
+}
+
+function isPrimeRoot(item) {
+  const prime = primeFrom(item)
+  return prime === 'root'
+}
+
 function normalizeId(value) {
   if (!value) return ''
   if (typeof value === 'string') return value
@@ -635,4 +846,43 @@ function escapeHtml(s) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
+}
+
+function getLatestTimestamp(item) {
+  const createdAt = item?.__rerum?.createdAt ?? item?.createdAt
+  const isOverwritten = item?.__rerum?.isOverwritten ?? item?.isOverwritten
+  
+  const timestamps = [createdAt, isOverwritten].filter(Boolean).map(ts => {
+    if (typeof ts === 'string') {
+      const date = new Date(ts)
+      return isNaN(date.getTime()) ? null : date.getTime()
+    }
+    if (typeof ts === 'number') return ts
+    return null
+  }).filter(t => t !== null)
+  
+  return timestamps.length > 0 ? Math.max(...timestamps) : 0
+}
+
+function formatTimeAgo(timestamp) {
+  if (!timestamp) return ''
+  
+  const now = Date.now()
+  const diff = now - timestamp
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(diff / 86400000)
+  
+  if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`
+  if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`
+  if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
+  return 'just now'
+}
+
+function sortByTimestamp(items) {
+  return [...items].sort((a, b) => {
+    const timestampA = getLatestTimestamp(a)
+    const timestampB = getLatestTimestamp(b)
+    return timestampB - timestampA // Most recent first
+  })
 }
