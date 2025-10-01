@@ -750,15 +750,27 @@ function buildGraph(items) {
   // Also build a filtered set of children to correctly identify roots
   const childrenArr = new Map()
   const allChildrenFiltered = new Set()
+  
   for (const [pid, set] of children.entries()) {
-    if (!nodes.has(pid)) continue // Skip parents that don't exist in the dataset
+    // Skip parents that don't exist in the dataset
+    if (!nodes.has(pid)) continue
+    
+    // Get valid child IDs (children that exist in the dataset)
     const childIds = Array.from(set).filter((cid) => nodes.has(cid))
     if (childIds.length === 0) continue
+    
+    // Sort children by timestamp
     const childItems = childIds.map(id => nodes.get(id))
     const sortedChildItems = sortByTimestamp(childItems)
-    const sortedChildIds = sortedChildItems.map(item => idFor(item)).filter(Boolean)
+    const sortedChildIds = sortedChildItems.map(item => idFor(item)).filter(id => id && nodes.has(id))
+    
+    // Store the parent-child relationship
     childrenArr.set(pid, sortedChildIds)
-    sortedChildIds.forEach(cid => allChildrenFiltered.add(cid))
+    
+    // Add all these children to the filtered set
+    for (const childId of sortedChildIds) {
+      allChildrenFiltered.add(childId)
+    }
   }
 
   // Roots = nodes with __rerum.history.prime: "root", fallback to nodes that are not children
@@ -776,14 +788,15 @@ function buildGraph(items) {
   
   // Also look for documents that point to a prime root (in case the actual root isn't in the dataset)
   if (primeRoots.length === 0) {
-    for (const [id, item] of nodes.entries()) {
+    for (const [, item] of nodes.entries()) {
       const prime = primeFrom(item)
       if (prime && typeof prime === 'string' && prime !== 'root') {
         // This document points to a prime root that might not be in our dataset
-        // If we don't have that prime root, this could be the effective root
-        if (!nodes.has(prime)) {
-          primeRootIds.add(id)
+        // If we DO have that prime root, add it to our roots
+        if (nodes.has(prime)) {
+          primeRootIds.add(prime)  // Add the actual prime root, not this node
         }
+        // If the prime root is missing, we'll fall back to orphan detection
       }
     }
   }
@@ -796,7 +809,10 @@ function buildGraph(items) {
   } else {
     // Use filtered children set to identify roots (nodes not in any existing parent's children)
     for (const id of nodes.keys()) {
-      if (!allChildrenFiltered.has(id)) roots.push(id)
+      const isChild = allChildrenFiltered.has(id)
+      if (!isChild) {
+        roots.push(id)
+      }
     }
   }
 
