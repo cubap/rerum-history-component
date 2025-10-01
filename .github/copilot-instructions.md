@@ -19,6 +19,18 @@ This repository contains a web component for displaying historical versions and 
 - Keep functions small and focused on a single responsibility
 - Write self-documenting code with comments only when necessary to explain "why" not "what"
 
+### JavaScript Style Rules
+
+- **No terminal semicolons**: Do not use semicolons at the end of statements. If a statement requires a semicolon to avoid ambiguity, place it at the front of the line (e.g., `;[1, 2, 3].forEach(...)`)
+- **Prefer optional chaining**: Use `?.` operator to safely access nested properties (e.g., `obj?.prop?.nested`)
+- **Prefer nullish coalescing**: Use `??` operator instead of `||` when checking for null/undefined (e.g., `value ?? defaultValue`)
+- **Prefer ternaries**: Use ternary operators for simple conditional assignments (e.g., `const x = condition ? a : b`)
+- **Prefer switch statements**: Use switch statements for multiple conditions based on a single value
+- **Guard clauses and early returns**: Avoid else blocks by using early returns and guard clauses
+- **ES6 modules**: Always use `import`/`export` instead of CommonJS `require`/`module.exports`
+- **Plain JavaScript**: Minimize dependencies for easier maintenance
+- **No non-inclusive language**: Use inclusive terminology in code, comments, and documentation
+
 ### Web Component Specific
 
 - Follow Web Components v1 specification

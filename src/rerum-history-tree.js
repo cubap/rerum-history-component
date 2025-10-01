@@ -3,7 +3,7 @@
 // Takes a document URI and replaces /id/ with /history/ to get the history endpoint.
 // Heuristics for id and parent/child linkage are documented in README.md.
 
-const TEMPLATE = document.createElement('template');
+const TEMPLATE = document.createElement('template')
 TEMPLATE.innerHTML = `
   <style>
     :host {
@@ -109,234 +109,244 @@ TEMPLATE.innerHTML = `
     </div>
   </div>
   <div id="content"></div>
-`;
+`
 
 export class RerumHistoryTree extends HTMLElement {
   static get observedAttributes() {
-    return ['document-uri', 'node-label-key'];
+    return ['document-uri', 'node-label-key']
   }
 
   constructor() {
-    super();
-    this.attachShadow({ mode: 'open' }).appendChild(TEMPLATE.content.cloneNode(true));
+    super()
+    this.attachShadow({ mode: 'open' }).appendChild(TEMPLATE.content.cloneNode(true))
     this._state = {
       items: [],
       graph: null
-    };
-    this._abort = null;
+    }
+    this._abort = null
   }
 
   connectedCallback() {
-    this._renderHeader();
+    this._renderHeader()
     if (this.documentUri) {
-      this.refresh();
+      this.refresh()
     }
   }
 
   attributeChangedCallback(name, oldVal, newVal) {
-    if (oldVal === newVal) return;
+    if (oldVal === newVal) return
+    
     if (name === 'document-uri') {
-      this._renderHeader();
+      this._renderHeader()
       if (this.isConnected && this.documentUri) {
-        this.refresh();
+        this.refresh()
       }
-    } else if (name === 'node-label-key' && this._state.items?.length) {
-      this._renderTree();
+      return
+    }
+    
+    if (name === 'node-label-key' && this._state.items?.length) {
+      this._renderTree()
     }
   }
 
   get documentUri() {
-    return this.getAttribute('document-uri') || '';
+    return this.getAttribute('document-uri') ?? ''
   }
   set documentUri(v) {
-    if (v == null) this.removeAttribute('document-uri');
-    else this.setAttribute('document-uri', v);
+    if (v == null) {
+      this.removeAttribute('document-uri')
+      return
+    }
+    this.setAttribute('document-uri', v)
   }
 
   get nodeLabelKey() {
-    return this.getAttribute('node-label-key') || '';
+    return this.getAttribute('node-label-key') ?? ''
   }
   set nodeLabelKey(v) {
-    if (!v) this.removeAttribute('node-label-key');
-    else this.setAttribute('node-label-key', v);
+    if (!v) {
+      this.removeAttribute('node-label-key')
+      return
+    }
+    this.setAttribute('node-label-key', v)
   }
 
   async refresh() {
-    if (!this.documentUri) return;
-    this._clearAbort();
-    const controller = new AbortController();
-    this._abort = controller;
+    if (!this.documentUri) return
+    this._clearAbort()
+    const controller = new AbortController()
+    this._abort = controller
 
     // Replace /id/ with /history/ to get the history endpoint
-    const url = this.documentUri.replace('/id/', '/history/');
-    this._setContent(this._infoEl(`Loading history…`));
+    const url = this.documentUri.replace('/id/', '/history/')
+    this._setContent(this._infoEl(`Loading history…`))
 
     try {
-      const res = await fetch(url, { signal: controller.signal, headers: { accept: 'application/json' } });
-      if (!res.ok) throw new Error(`Request failed (${res.status}) ${res.statusText}`);
-      const data = await res.json();
+      const res = await fetch(url, { signal: controller.signal, headers: { accept: 'application/json' } })
+      if (!res.ok) throw new Error(`Request failed (${res.status}) ${res.statusText}`)
+      const data = await res.json()
 
-      const rawItems = Array.isArray(data) ? data : (data?.items || data?.history || []);
+      const rawItems = Array.isArray(data) ? data : (data?.items ?? data?.history ?? [])
       if (!Array.isArray(rawItems)) {
-        throw new Error('Unexpected response format (expected array).');
+        throw new Error('Unexpected response format (expected array).')
       }
 
-      const items = rawItems.map((it) => (typeof it === 'string' ? { '@id': it } : it));
-      this._state.items = items;
-      this._state.graph = buildGraph(items);
+      const items = rawItems.map((it) => (typeof it === 'string' ? { '@id': it } : it))
+      this._state.items = items
+      this._state.graph = buildGraph(items)
 
-      this._renderTree();
+      this._renderTree()
 
       this.dispatchEvent(new CustomEvent('loaded', {
         detail: { count: items.length, roots: this._state.graph.roots },
         bubbles: true
-      }));
+      }))
     } catch (error) {
-      if (error.name === 'AbortError') return;
-      this._setContent(this._errorEl(error));
-      this.dispatchEvent(new CustomEvent('error', { detail: { error }, bubbles: true }));
+      if (error.name === 'AbortError') return
+      this._setContent(this._errorEl(error))
+      this.dispatchEvent(new CustomEvent('error', { detail: { error }, bubbles: true }))
     } finally {
-      this._clearAbort();
+      this._clearAbort()
     }
   }
 
   _renderHeader() {
-    const root = this.shadowRoot;
-    root.getElementById('docUriDisplay').textContent = this.documentUri || '(no document URI)';
+    const root = this.shadowRoot
+    root.getElementById('docUriDisplay').textContent = this.documentUri || '(no document URI)'
   }
 
   _renderTree() {
-    const container = document.createElement('div');
-    container.className = 'tree';
+    const container = document.createElement('div')
+    container.className = 'tree'
 
-    const { nodes, children, roots, idFor } = this._state.graph || {};
+    const { nodes, children, roots, idFor } = this._state.graph ?? {}
     if (!nodes) {
-      this._setContent(this._errorEl(new Error('No graph to render.')));
-      return;
+      this._setContent(this._errorEl(new Error('No graph to render.')))
+      return
     }
 
     if (roots.length === 0) {
-      container.appendChild(this._infoEl('No roots found. Rendering all as leaves.'));
+      container.appendChild(this._infoEl('No roots found. Rendering all as leaves.'))
       for (const item of this._state.items) {
-        container.appendChild(this._leafEl(item, idFor(item)));
+        container.appendChild(this._leafEl(item, idFor(item)))
       }
-      this._setContent(container);
-      return;
+      this._setContent(container)
+      return
     }
 
     for (const rootId of roots) {
-      const el = this._branchEl(nodes.get(rootId), rootId, children, nodes, idFor, 0);
-      container.appendChild(el);
+      const el = this._branchEl(nodes.get(rootId), rootId, children, nodes, idFor, 0)
+      container.appendChild(el)
     }
 
-    this._setContent(container);
+    this._setContent(container)
   }
 
   _branchEl(item, id, childrenMap, nodes, idFor, depth) {
-    const kids = childrenMap.get(id) || [];
-    const details = document.createElement('details');
-    if (depth < 2) details.open = true;
+    const kids = childrenMap.get(id) ?? []
+    const details = document.createElement('details')
+    if (depth < 2) details.open = true
 
-    const summary = document.createElement('summary');
-    const twisty = document.createElement('span');
-    twisty.className = 'twisty';
-    twisty.textContent = '▶';
-    const label = document.createElement('span');
-    label.className = 'label';
-    label.textContent = this._labelFor(item, id);
-    const idEl = document.createElement('span');
-    idEl.className = 'id meta';
-    idEl.textContent = `(${id})`;
+    const summary = document.createElement('summary')
+    const twisty = document.createElement('span')
+    twisty.className = 'twisty'
+    twisty.textContent = '▶'
+    const label = document.createElement('span')
+    label.className = 'label'
+    label.textContent = this._labelFor(item, id)
+    const idEl = document.createElement('span')
+    idEl.className = 'id meta'
+    idEl.textContent = `(${id})`
 
-    summary.appendChild(twisty);
-    summary.appendChild(label);
-    summary.appendChild(idEl);
+    summary.appendChild(twisty)
+    summary.appendChild(label)
+    summary.appendChild(idEl)
     summary.addEventListener('click', (e) => {
       this.dispatchEvent(new CustomEvent('nodeclick', {
         detail: { id, item },
         bubbles: true
-      }));
-      e.stopPropagation();
-    });
+      }))
+      e.stopPropagation()
+    })
 
-    details.appendChild(summary);
+    details.appendChild(summary)
 
     for (const childId of kids) {
-      const child = nodes.get(childId);
-      const childKids = (childrenMap.get(childId) || []);
+      const child = nodes.get(childId)
+      const childKids = childrenMap.get(childId) ?? []
       if (childKids.length > 0) {
-        details.appendChild(this._branchEl(child, childId, childrenMap, nodes, idFor, depth + 1));
+        details.appendChild(this._branchEl(child, childId, childrenMap, nodes, idFor, depth + 1))
       } else {
-        details.appendChild(this._leafEl(child, childId));
+        details.appendChild(this._leafEl(child, childId))
       }
     }
-    return details;
+    return details
   }
 
   _leafEl(item, id) {
-    const leaf = document.createElement('div');
-    leaf.className = 'leaf';
+    const leaf = document.createElement('div')
+    leaf.className = 'leaf'
     leaf.innerHTML = `
       <span class="label">${escapeHtml(this._labelFor(item, id))}</span>
       <span class="id meta">(${escapeHtml(id)})</span>
-    `;
+    `
     leaf.addEventListener('click', (e) => {
       this.dispatchEvent(new CustomEvent('nodeclick', {
         detail: { id, item },
         bubbles: true
-      }));
-      e.stopPropagation();
-    });
-    return leaf;
+      }))
+      e.stopPropagation()
+    })
+    return leaf
   }
 
   _labelFor(item, id) {
-    const key = this.nodeLabelKey?.trim();
+    const key = this.nodeLabelKey?.trim()
     if (key && item && typeof item === 'object' && key in item) {
-      const v = item[key];
-      if (v != null) return String(v);
+      const v = item[key]
+      if (v != null) return String(v)
     }
-    if (item?.label) return String(item.label);
-    if (item?.name) return String(item.name);
+    if (item?.label) return String(item.label)
+    if (item?.name) return String(item.name)
     if (id) {
       try {
-        const u = new URL(String(id), window.location.href);
-        const segs = u.pathname.split('/').filter(Boolean);
-        if (segs.length) return segs[segs.length - 1];
+        const u = new URL(String(id), window.location.href)
+        const segs = u.pathname.split('/').filter(Boolean)
+        if (segs.length) return segs[segs.length - 1]
       } catch {
-        const segs = String(id).split(/[\/#!]/).filter(Boolean);
-        if (segs.length) return segs[segs.length - 1];
+        const segs = String(id).split(/[/#!]/).filter(Boolean)
+        if (segs.length) return segs[segs.length - 1]
       }
     }
-    return 'version';
+    return 'version'
   }
 
   _infoEl(msg) {
-    const d = document.createElement('div');
-    d.className = 'meta';
-    d.textContent = msg;
-    return d;
+    const d = document.createElement('div')
+    d.className = 'meta'
+    d.textContent = msg
+    return d
   }
   _errorEl(error) {
-    const d = document.createElement('div');
-    d.className = 'error';
-    d.textContent = `Error: ${error?.message || error}`;
-    return d;
+    const d = document.createElement('div')
+    d.className = 'error'
+    d.textContent = `Error: ${error?.message ?? error}`
+    return d
   }
   _setContent(node) {
-    const content = this.shadowRoot.getElementById('content');
-    content.innerHTML = '';
-    content.appendChild(node);
+    const content = this.shadowRoot.getElementById('content')
+    content.innerHTML = ''
+    content.appendChild(node)
   }
   _clearAbort() {
     if (this._abort) {
-      this._abort.abort();
-      this._abort = null;
+      this._abort.abort()
+      this._abort = null
     }
   }
 }
 
-customElements.define('rerum-history-tree', RerumHistoryTree);
+customElements.define('rerum-history-tree', RerumHistoryTree)
 
 /**
  * Build a graph from items using heuristics:
@@ -345,87 +355,90 @@ customElements.define('rerum-history-tree', RerumHistoryTree);
  * - nextFrom(item): __rerum.history.next (array of ids)
  */
 function buildGraph(items) {
-  const nodes = new Map();
-  const idFor = (item) => idFrom(item);
+  const nodes = new Map()
+  const idFor = (item) => idFrom(item)
   for (const it of items) {
-    const id = idFor(it);
-    if (!id) continue;
-    nodes.set(id, it);
+    const id = idFor(it)
+    if (!id) continue
+    nodes.set(id, it)
   }
 
-  const children = new Map();
-  const allChildren = new Set();
-  const ensure = (id) => { if (!children.has(id)) children.set(id, new Set()); return children.get(id); };
+  const children = new Map()
+  const allChildren = new Set()
+  const ensure = (id) => {
+    if (!children.has(id)) children.set(id, new Set())
+    return children.get(id)
+  }
 
   // previous -> child
   for (const it of items) {
-    const childId = idFor(it);
-    if (!childId) continue;
+    const childId = idFor(it)
+    if (!childId) continue
 
-    const prev = previousFrom(it);
-    const parentId = normalizeId(prev);
+    const prev = previousFrom(it)
+    const parentId = normalizeId(prev)
     if (parentId) {
-      ensure(parentId).add(childId);
-      allChildren.add(childId);
+      ensure(parentId).add(childId)
+      allChildren.add(childId)
     }
   }
 
   // next array -> children
   for (const it of items) {
-    const parentId = idFor(it);
-    if (!parentId) continue;
+    const parentId = idFor(it)
+    if (!parentId) continue
 
-    const nexts = nextFrom(it);
+    const nexts = nextFrom(it)
     if (Array.isArray(nexts)) {
       for (const nxt of nexts) {
-        const cid = normalizeId(nxt);
-        if (!cid) continue;
-        ensure(parentId).add(cid);
-        allChildren.add(cid);
+        const cid = normalizeId(nxt)
+        if (!cid) continue
+        ensure(parentId).add(cid)
+        allChildren.add(cid)
       }
     }
   }
 
   // Convert child sets to arrays and filter to known nodes
-  const childrenArr = new Map();
+  const childrenArr = new Map()
   for (const [pid, set] of children.entries()) {
-    childrenArr.set(pid, Array.from(set).filter((cid) => nodes.has(cid)));
+    childrenArr.set(pid, Array.from(set).filter((cid) => nodes.has(cid)))
   }
 
   // Roots = nodes that are not a child of any other node
-  const roots = [];
+  const roots = []
   for (const id of nodes.keys()) {
-    if (!allChildren.has(id)) roots.push(id);
+    if (!allChildren.has(id)) roots.push(id)
   }
 
-  return { nodes, children: childrenArr, roots, idFor };
+  return { nodes, children: childrenArr, roots, idFor }
 }
 
 function idFrom(item) {
-  if (!item || typeof item !== 'object') return '';
-  if (typeof item['@id'] === 'string') return item['@id'];
-  if (typeof item.id === 'string') return item.id;
-  if (typeof item._id === 'string') return item._id;
-  const nested = item?.__rerum?.history?.id || item?.__rerum?.id;
-  if (typeof nested === 'string') return nested;
-  return '';
+  if (!item || typeof item !== 'object') return ''
+  if (typeof item['@id'] === 'string') return item['@id']
+  if (typeof item.id === 'string') return item.id
+  if (typeof item._id === 'string') return item._id
+  const nested = item?.__rerum?.history?.id ?? item?.__rerum?.id
+  if (typeof nested === 'string') return nested
+  return ''
 }
 
 function previousFrom(item) {
-  const prev = item?.__rerum?.history?.previous ?? item?.history?.previous ?? item?.__rerum?.previous;
-  return prev;
+  const prev = item?.__rerum?.history?.previous ?? item?.history?.previous ?? item?.__rerum?.previous
+  return prev
 }
 
 function nextFrom(item) {
-  const nxt = item?.__rerum?.history?.next ?? item?.history?.next ?? item?.__rerum?.next;
-  return Array.isArray(nxt) ? nxt : (typeof nxt === 'string' ? [nxt] : null);
+  const nxt = item?.__rerum?.history?.next ?? item?.history?.next ?? item?.__rerum?.next
+  return Array.isArray(nxt) ? nxt : (typeof nxt === 'string' ? [nxt] : null)
 }
 
 function normalizeId(value) {
-  if (!value) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'object') return idFrom(value);
-  return '';
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'object') return idFrom(value)
+  return ''
 }
 
 function escapeHtml(s) {
@@ -434,5 +447,5 @@ function escapeHtml(s) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+    .replaceAll("'", '&#039;')
 }
