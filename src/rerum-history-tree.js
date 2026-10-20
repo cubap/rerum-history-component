@@ -20,6 +20,8 @@ TEMPLATE.innerHTML = `
       line-height: var(--rht-line-height);
       color: #111827; /* gray-900 */
       background: var(--rht-bg);
+      /* Allow height transitions to/from auto so details can slide open/closed. */
+      interpolate-size: allow-keywords;
     }
     .container {
       display: flex;
@@ -131,6 +133,25 @@ TEMPLATE.innerHTML = `
     details[open] > summary .twisty {
       transform: rotate(0deg);
       color: var(--rht-accent);
+    }
+    /* Slide the branch content open/closed. The ::details-content pseudo-element is
+       the box the browser shows/hides for a details; animating its block-size gives a
+       continuous slide. Browsers without support fall back to native toggle. */
+    details::details-content {
+      block-size: 0;
+      overflow: clip;
+      overflow-clip-margin: 4px; /* let focus outlines bleed past the clip edge */
+      transition:
+        block-size .24s ease,
+        content-visibility .24s allow-discrete;
+    }
+    details[open]::details-content {
+      block-size: auto;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      details::details-content {
+        transition: none;
+      }
     }
     .label {
       font-weight: 500;
