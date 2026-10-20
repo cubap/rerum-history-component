@@ -28,6 +28,10 @@
         Node label key (optional)
         <input id="labelKey" placeholder="label" />
       </label>
+      <label>
+        Filter (optional)
+        <input id="filterInput" placeholder="Search versions…" />
+      </label>
       <div>
         <button id="loadBtn">Load</button>
         <span class="note">Supports dev at https://devstore.rerum.io/v1/id</span>
@@ -36,11 +40,14 @@
 
     <rerum-history-tree id="tree"></rerum-history-tree>
 
+    <p class="note" id="status">Last selected: (none)</p>
+
     <script type="module">
       const tree = document.getElementById('tree')
       document.getElementById('loadBtn').addEventListener('click', () => {
         const docUri = document.getElementById('docUri').value.trim()
         const labelKey = document.getElementById('labelKey').value.trim() || null
+        const filter = document.getElementById('filterInput').value.trim() || null
         if (!docUri) {
           alert('Please provide a Document URI.')
           return
@@ -52,13 +59,19 @@
         tree.setAttribute('document-uri', docUri)
         if (labelKey) {
           tree.setAttribute('node-label-key', labelKey)
-          return
+        } else {
+          tree.removeAttribute('node-label-key')
         }
-        tree.removeAttribute('node-label-key')
+        if (filter) {
+          tree.setAttribute('filter', filter)
+        } else {
+          tree.removeAttribute('filter')
+        }
       })
 
-      tree.addEventListener('nodeclick', (e) => {
-        console.log('Node clicked:', e.detail)
+      tree.addEventListener('versionselected', (e) => {
+        document.getElementById('status').textContent = `Last selected: ${e.detail.id}`
+        console.log('Version selected:', e.detail)
       })
       tree.addEventListener('loaded', (e) => {
         console.log('Loaded:', e.detail)

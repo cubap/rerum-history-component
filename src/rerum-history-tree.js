@@ -1,6 +1,6 @@
 // RERUM History Tree Web Component
-// Fetches the appropriate /history/{id} and /since/{id} endpoints and renders a collapsible tree.
-// Takes a document URI and replaces /id/ with /history/ and /since/ to get both endpoints.
+// Fetches the /history/{id} and /since/{id} endpoints for a RERUM document and renders a
+// collapsible, searchable, keyboard-navigable version tree.
 // Heuristics for id and parent/child linkage are documented in README.md.
 
 const TEMPLATE = document.createElement('template')
@@ -9,7 +9,7 @@ TEMPLATE.innerHTML = `
     :host {
       --rht-font-size: 14px;
       --rht-line-height: 1.35;
-      --rht-accent: #2563eb; /* indigo-600 */
+      --rht-accent: #2563eb; /* blue-600 */
       --rht-muted: #6b7280;  /* gray-500 */
       --rht-border: #e5e7eb; /* gray-200 */
       --rht-bg: #fff;
@@ -80,6 +80,26 @@ TEMPLATE.innerHTML = `
       border-radius: 4px;
       border: 1px solid var(--rht-border);
       color: #111827;
+      word-break: break-all;
+    }
+    .search-wrap {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      margin-left: auto;
+    }
+    .search {
+      font: inherit;
+      padding: .25rem .5rem;
+      border: 1px solid var(--rht-border);
+      border-radius: 6px;
+      min-width: 12rem;
+    }
+    .search:focus-visible,
+    summary:focus-visible,
+    .leaf:focus-visible {
+      outline: 2px solid var(--rht-accent);
+      outline-offset: 1px;
     }
     .tree {
       padding-left: .25rem;
@@ -137,21 +157,26 @@ TEMPLATE.innerHTML = `
       margin: .125rem 0 .125rem 1.5rem;
       padding: .1rem .25rem;
       border-radius: 6px;
+      cursor: pointer;
     }
     .leaf:hover { background: var(--rht-hover); }
     .leaf.selected,
-    details.selected > summary { 
+    details.selected > summary {
       background: var(--rht-accent);
       color: white;
     }
     .leaf.selected .meta,
-    details.selected > summary .meta { 
+    details.selected > summary .meta {
       color: rgba(255, 255, 255, 0.8);
     }
     .id {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       color: #374151;
       word-break: break-all;
+    }
+    .leaf.selected .id,
+    details.selected > summary .id {
+      color: rgba(255, 255, 255, 0.9);
     }
     .error {
       color: #b91c1c;
@@ -176,6 +201,11 @@ TEMPLATE.innerHTML = `
     <div class="meta">
       <span class="sr-only">Document URI: </span><code id="docUriDisplay"></code>
     </div>
+    <div class="search-wrap">
+      <label class="sr-only" for="search">Filter versions</label>
+      <input id="search" class="search" type="search" placeholder="Filter versions…" autocomplete="off" />
+      <span id="matchCount" class="meta" role="status" aria-live="polite"></span>
+    </div>
   </div>
   <div class="container">
     <div class="tree-section">
@@ -190,7 +220,7 @@ TEMPLATE.innerHTML = `
 
 export class RerumHistoryTree extends HTMLElement {
   static get observedAttributes() {
-    return ['document-uri', 'node-label-key']
+    return ['document-uri', 'node-label-key', 'filter']
   }
 
   constructor() {
@@ -203,28 +233,45 @@ export class RerumHistoryTree extends HTMLElement {
       selectedId: null
     }
     this._historyData = null
+    this._nodeEls = new Map()
+    this._onTreeKeydown = this._onTreeKeydown.bind(this)
+    this._onTreeFocusIn = this._onTreeFocusIn.bind(this)
   }
 
   connectedCallback() {
     this._renderHeader()
+    this._wireSearch()
     if (this.documentUri) {
       this.refresh()
     }
   }
 
+  // Abort any in-flight request when the element leaves the DOM to avoid leaks.
+  disconnectedCallback() {
+    this._clearAbort()
+  }
+
   attributeChangedCallback(name, oldVal, newVal) {
     if (oldVal === newVal) return
-    
-    if (name === 'document-uri') {
-      this._renderHeader()
-      if (this.isConnected && this.documentUri) {
-        this.refresh()
+
+    switch (name) {
+      case 'document-uri':
+        this._renderHeader()
+        if (this.isConnected && this.documentUri) {
+          this.refresh()
+        }
+        return
+      case 'node-label-key':
+        if (this._state.items?.length) this._renderTree()
+        return
+      case 'filter': {
+        const input = this.shadowRoot.getElementById('search')
+        if (input && input.value !== (newVal ?? '')) input.value = newVal ?? ''
+        if (this._state.items?.length) this._renderTree()
+        return
       }
-      return
-    }
-    
-    if (name === 'node-label-key' && this._state.items?.length) {
-      this._renderTree()
+      default:
+        return
     }
   }
 
@@ -250,13 +297,24 @@ export class RerumHistoryTree extends HTMLElement {
     this.setAttribute('node-label-key', v)
   }
 
+  get filter() {
+    return this.getAttribute('filter') ?? ''
+  }
+  set filter(v) {
+    if (!v) {
+      this.removeAttribute('filter')
+      return
+    }
+    this.setAttribute('filter', v)
+  }
+
   async refresh() {
     if (!this.documentUri) return
     this._clearAbort()
-    
+
     const historyData = new RerumHistoryData(this.documentUri)
     this._historyData = historyData
-    this._setContent(this._infoEl(`Loading history…`))
+    this._setContent(this._infoEl('Loading history…'))
 
     try {
       await historyData.fetch()
@@ -278,13 +336,26 @@ export class RerumHistoryTree extends HTMLElement {
   }
 
   _renderHeader() {
-    const root = this.shadowRoot
-    root.getElementById('docUriDisplay').textContent = this.documentUri || '(no document URI)'
+    this.shadowRoot.getElementById('docUriDisplay').textContent = this.documentUri || '(no document URI)'
+  }
+
+  _wireSearch() {
+    if (this._searchWired) return
+    const input = this.shadowRoot.getElementById('search')
+    if (!input) return
+    input.value = this.filter
+    input.addEventListener('input', () => {
+      this.filter = input.value
+    })
+    this._searchWired = true
   }
 
   _renderTree() {
     const container = document.createElement('div')
     container.className = 'tree'
+    container.setAttribute('role', 'tree')
+    container.setAttribute('aria-label', 'Version history')
+    this._nodeEls = new Map()
 
     const { nodes, children, roots, idFor } = this._state.graph ?? {}
     if (!nodes) {
@@ -292,26 +363,60 @@ export class RerumHistoryTree extends HTMLElement {
       return
     }
 
+    const countEl = this.shadowRoot.getElementById('matchCount')
+    const query = this.filter.trim().toLowerCase()
+
+    if (query) {
+      this._renderFiltered(container, nodes, query, countEl)
+      this._setContent(container)
+      this._wireTreeKeyboard(container)
+      return
+    }
+
+    if (countEl) countEl.textContent = ''
+
     if (roots.length === 0) {
       container.appendChild(this._infoEl('No roots found. Rendering all as leaves.'))
       for (const item of this._state.items) {
         container.appendChild(this._leafEl(item, idFor(item)))
       }
       this._setContent(container)
+      this._wireTreeKeyboard(container)
       return
     }
 
     for (const rootId of roots) {
-      const el = this._branchEl(nodes.get(rootId), rootId, children, nodes, idFor, 0)
-      container.appendChild(el)
+      container.appendChild(this._branchEl(nodes.get(rootId), rootId, children, nodes, idFor, 0))
     }
 
     this._setContent(container)
-    
+    this._wireTreeKeyboard(container)
+
     // Auto-select the current document version if it exists in the tree
     if (this.documentUri && nodes.has(this.documentUri)) {
-      const currentItem = nodes.get(this.documentUri)
-      this._selectVersion(currentItem, this.documentUri)
+      this._selectVersion(nodes.get(this.documentUri), this.documentUri)
+    }
+  }
+
+  _renderFiltered(container, nodes, query, countEl) {
+    const matches = []
+    for (const [id, item] of nodes.entries()) {
+      const label = this._labelFor(item, id)
+      if (label.toLowerCase().includes(query) || String(id).toLowerCase().includes(query)) {
+        matches.push({ id, item, ts: getLatestTimestamp(item) })
+      }
+    }
+    matches.sort((a, b) => b.ts - a.ts)
+
+    if (countEl) countEl.textContent = `${matches.length} match${matches.length === 1 ? '' : 'es'}`
+
+    if (matches.length === 0) {
+      container.appendChild(this._infoEl('No versions match your filter.'))
+      return
+    }
+
+    for (const m of matches) {
+      container.appendChild(this._leafEl(m.item, m.id))
     }
   }
 
@@ -322,8 +427,14 @@ export class RerumHistoryTree extends HTMLElement {
     if (depth < 2) details.open = true
 
     const summary = document.createElement('summary')
+    summary.className = 'node'
+    summary.setAttribute('data-id', id)
+    summary.tabIndex = -1
+    summary.setAttribute('aria-level', String(depth + 1))
+
     const twisty = document.createElement('span')
     twisty.className = 'twisty'
+    twisty.setAttribute('aria-hidden', 'true')
     twisty.textContent = '▶'
     const label = document.createElement('span')
     label.className = 'label'
@@ -340,21 +451,15 @@ export class RerumHistoryTree extends HTMLElement {
     summary.appendChild(timeAgo)
     summary.appendChild(idEl)
 
-    // Add click handlers to label and ID for selection
+    // Selecting via the label or id should not also toggle the disclosure.
     const handleSelection = (e) => {
-      // Select this version to show in details panel
-      this._selectVersion(item, id)
-      
-      this.dispatchEvent(new CustomEvent('versionselected', {
-        detail: { id, item },
-        bubbles: true
-      }))
-      e.stopPropagation()
+      e.preventDefault()
+      this._selectById(id)
     }
-    
     label.addEventListener('click', handleSelection)
     idEl.addEventListener('click', handleSelection)
 
+    this._nodeEls.set(id, summary)
     details.appendChild(summary)
 
     for (const childId of kids) {
@@ -371,45 +476,118 @@ export class RerumHistoryTree extends HTMLElement {
 
   _leafEl(item, id) {
     const leaf = document.createElement('div')
-    leaf.className = 'leaf'
+    leaf.className = 'leaf node'
     leaf.setAttribute('data-id', id)
+    leaf.tabIndex = -1
     leaf.innerHTML = `
       <span class="label">${escapeHtml(this._labelFor(item, id))}</span>
       <span class="time-ago meta">${escapeHtml(formatTimeAgo(getLatestTimestamp(item)))}</span>
       <span class="id meta">(${escapeHtml(id)})</span>
     `
-    leaf.addEventListener('click', (e) => {
-      // Select this version to show in details panel
-      this._selectVersion(item, id)
-      
-      this.dispatchEvent(new CustomEvent('versionselected', {
-        detail: { id, item },
-        bubbles: true
-      }))
-      e.stopPropagation()
+    leaf.addEventListener('click', () => {
+      this._selectById(id)
     })
+    this._nodeEls.set(id, leaf)
     return leaf
   }
 
   _labelFor(item, id) {
-    const key = this.nodeLabelKey?.trim()
-    if (key && item && typeof item === 'object' && key in item) {
-      const v = item[key]
-      if (v != null) return String(v)
+    return labelFor(item, id, this.nodeLabelKey)
+  }
+
+  _wireTreeKeyboard(container) {
+    container.addEventListener('keydown', this._onTreeKeydown)
+    container.addEventListener('focusin', this._onTreeFocusIn)
+    this._setRoving(this._visibleFocusables(), 0)
+  }
+
+  _isFocusableNode(el) {
+    return el instanceof Element && el.matches('summary[data-id], .leaf[data-id]')
+  }
+
+  _visibleFocusables() {
+    const container = this.shadowRoot.querySelector('.tree')
+    if (!container) return []
+    return Array.from(container.querySelectorAll('summary[data-id], .leaf[data-id]'))
+      .filter((el) => this._isVisibleInTree(el, container))
+  }
+
+  _isVisibleInTree(el, container) {
+    // A summary stays visible even when its own details is collapsed, so start above it.
+    let cur = el.tagName === 'SUMMARY' ? el.parentElement?.parentElement : el.parentElement
+    while (cur && cur !== container) {
+      if (cur.tagName === 'DETAILS' && !cur.open) return false
+      cur = cur.parentElement
     }
-    if (item?.label) return String(item.label)
-    if (item?.name) return String(item.name)
-    if (id) {
-      try {
-        const u = new URL(String(id), window.location.href)
-        const segs = u.pathname.split('/').filter(Boolean)
-        if (segs.length) return segs[segs.length - 1]
-      } catch {
-        const segs = String(id).split(/[/#!]/).filter(Boolean)
-        if (segs.length) return segs[segs.length - 1]
+    return true
+  }
+
+  _setRoving(list, activeIdx) {
+    list.forEach((el, i) => { el.tabIndex = i === activeIdx ? 0 : -1 })
+  }
+
+  _focusIndex(list, i) {
+    if (!list.length) return
+    const idx = Math.max(0, Math.min(i, list.length - 1))
+    this._setRoving(list, idx)
+    list[idx].focus()
+  }
+
+  _onTreeFocusIn(e) {
+    const target = e.target
+    if (!this._isFocusableNode(target)) return
+    const list = this._visibleFocusables()
+    this._setRoving(list, list.indexOf(target))
+  }
+
+  _onTreeKeydown(e) {
+    const target = e.target
+    if (!this._isFocusableNode(target)) return
+
+    const list = this._visibleFocusables()
+    const idx = list.indexOf(target)
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        this._focusIndex(list, idx + 1)
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        this._focusIndex(list, idx - 1)
+        break
+      case 'Home':
+        e.preventDefault()
+        this._focusIndex(list, 0)
+        break
+      case 'End':
+        e.preventDefault()
+        this._focusIndex(list, list.length - 1)
+        break
+      case 'ArrowRight': {
+        const d = target.closest('details')
+        if (d && !d.open) {
+          e.preventDefault()
+          d.open = true
+        }
+        break
       }
+      case 'ArrowLeft': {
+        const d = target.closest('details')
+        if (d && d.open) {
+          e.preventDefault()
+          d.open = false
+        }
+        break
+      }
+      case 'Enter':
+      case ' ':
+        e.preventDefault()
+        this._selectById(target.getAttribute('data-id'))
+        break
+      default:
+        break
     }
-    return 'version'
   }
 
   _infoEl(msg) {
@@ -436,31 +614,44 @@ export class RerumHistoryTree extends HTMLElement {
     }
   }
 
+  _selectById(id) {
+    const nodes = this._state.graph?.nodes
+    if (!id || !nodes || !nodes.has(id)) return
+
+    const item = nodes.get(id)
+    this._selectVersion(item, id)
+
+    this.dispatchEvent(new CustomEvent('versionselected', {
+      detail: { id, item },
+      bubbles: true
+    }))
+  }
+
   _selectVersion(item, id) {
-    // Clear previous selection
     this._clearSelection()
-    
+
     this._state.selectedItem = item
     this._state.selectedId = id
     this._showVersionDetails(item)
-    
-    // Mark the current element as selected
-    const element = this.shadowRoot.querySelector(`[data-id="${id}"]`)
+
+    const element = this._nodeEls.get(id)
     if (element) {
       element.classList.add('selected')
+      element.setAttribute('aria-current', 'true')
     }
   }
 
   _clearSelection() {
-    const root = this.shadowRoot
-    const selected = root.querySelectorAll('.selected')
-    selected.forEach(el => el.classList.remove('selected'))
+    this.shadowRoot.querySelectorAll('.selected').forEach((el) => {
+      el.classList.remove('selected')
+      el.removeAttribute('aria-current')
+    })
   }
 
   _showVersionDetails(item) {
     const panel = this.shadowRoot.getElementById('detailsPanel')
     const table = this.shadowRoot.getElementById('keyValueTable')
-    
+
     if (!item || typeof item !== 'object') {
       panel.classList.add('hidden')
       return
@@ -474,15 +665,13 @@ export class RerumHistoryTree extends HTMLElement {
       }
     }
 
-    // Clear existing content
     table.innerHTML = ''
 
-    // Add each key-value pair
     for (const [key, value] of Object.entries(filteredItem)) {
       const dt = document.createElement('dt')
       dt.textContent = key
       const dd = document.createElement('dd')
-      
+
       if (value == null) {
         dd.textContent = 'null'
       } else if (typeof value === 'object') {
@@ -490,7 +679,7 @@ export class RerumHistoryTree extends HTMLElement {
       } else {
         dd.textContent = String(value)
       }
-      
+
       table.appendChild(dt)
       table.appendChild(dd)
     }
@@ -528,10 +717,10 @@ export class RerumHistoryData {
     const controller = new AbortController()
     this._abort = controller
 
-    const historyUrl = this.documentUri.replace('/id/', '/history/')
-    const sinceUrl = this.documentUri.replace('/id/', '/since/')
-
     try {
+      const historyUrl = deriveEndpointUrl(this.documentUri, 'history')
+      const sinceUrl = deriveEndpointUrl(this.documentUri, 'since')
+
       const [historyRes, sinceRes] = await Promise.all([
         fetch(historyUrl, { signal: controller.signal, headers: { accept: 'application/json' } }),
         fetch(sinceUrl, { signal: controller.signal, headers: { accept: 'application/json' } })
@@ -540,7 +729,7 @@ export class RerumHistoryData {
       if (!historyRes.ok) {
         throw new Error(`History request failed (${historyRes.status}) ${historyRes.statusText}`)
       }
-      
+
       const historyData = await historyRes.json()
       const historyRawItems = Array.isArray(historyData) ? historyData : (historyData?.items ?? historyData?.history ?? [])
       if (!Array.isArray(historyRawItems)) {
@@ -558,26 +747,23 @@ export class RerumHistoryData {
 
       const allRawItems = [...historyRawItems, ...sinceRawItems]
       const items = allRawItems.map((it) => (typeof it === 'string' ? { '@id': it } : it))
-      
+
       // Add the current document if it's not already in the items
-      const currentDocumentIncluded = items.some(item => idFrom(item) === this.documentUri)
+      const currentDocumentIncluded = items.some((item) => idFrom(item) === this.documentUri)
       if (!currentDocumentIncluded) {
-        console.log('Current document not found in history/since, fetching it...')
         try {
-          const currentRes = await fetch(this.documentUri, { 
-            signal: controller.signal, 
-            headers: { accept: 'application/json' } 
+          const currentRes = await fetch(this.documentUri, {
+            signal: controller.signal,
+            headers: { accept: 'application/json' }
           })
           if (currentRes.ok) {
-            const currentDoc = await currentRes.json()
-            items.push(currentDoc)
-            console.log('Added current document to items:', idFrom(currentDoc))
+            items.push(await currentRes.json())
           }
-        } catch (error) {
-          console.warn('Could not fetch current document:', error)
+        } catch {
+          // The current document is a nice-to-have; ignore failures and render what we have.
         }
       }
-      
+
       const seen = new Set()
       const uniqueItems = items.filter((item) => {
         const id = idFrom(item)
@@ -643,7 +829,7 @@ export class RerumHistoryData {
     const nodes = this.getNodes()
     const children = this.getChildren()
     const item = nodes.get(id)
-    
+
     if (!item) return null
 
     const label = this._getLabelFor(item, id, labelKey)
@@ -666,28 +852,11 @@ export class RerumHistoryData {
    */
   getAllSummaries(labelKey) {
     const nodes = this.getNodes()
-    return Array.from(nodes.keys()).map(id => this.getSummary(id, labelKey))
+    return Array.from(nodes.keys()).map((id) => this.getSummary(id, labelKey))
   }
 
   _getLabelFor(item, id, labelKey) {
-    const key = labelKey?.trim()
-    if (key && item && typeof item === 'object' && key in item) {
-      const v = item[key]
-      if (v != null) return String(v)
-    }
-    if (item?.label) return String(item.label)
-    if (item?.name) return String(item.name)
-    if (id) {
-      try {
-        const u = new URL(String(id))
-        const segs = u.pathname.split('/').filter(Boolean)
-        if (segs.length) return segs[segs.length - 1]
-      } catch {
-        const segs = String(id).split(/[/#!]/).filter(Boolean)
-        if (segs.length) return segs[segs.length - 1]
-      }
-    }
-    return 'version'
+    return labelFor(item, id, labelKey)
   }
 
   _findParent(childId) {
@@ -769,23 +938,23 @@ function buildGraph(items) {
   // Also build a filtered set of children to correctly identify roots
   const childrenArr = new Map()
   const allChildrenFiltered = new Set()
-  
+
   for (const [pid, set] of children.entries()) {
     // Skip parents that don't exist in the dataset
     if (!nodes.has(pid)) continue
-    
+
     // Get valid child IDs (children that exist in the dataset)
     const childIds = Array.from(set).filter((cid) => nodes.has(cid))
     if (childIds.length === 0) continue
-    
+
     // Sort children by timestamp
-    const childItems = childIds.map(id => nodes.get(id))
+    const childItems = childIds.map((id) => nodes.get(id))
     const sortedChildItems = sortByTimestamp(childItems)
-    const sortedChildIds = sortedChildItems.map(item => idFor(item)).filter(id => id && nodes.has(id))
-    
+    const sortedChildIds = sortedChildItems.map((item) => idFor(item)).filter((id) => id && nodes.has(id))
+
     // Store the parent-child relationship
     childrenArr.set(pid, sortedChildIds)
-    
+
     // Add all these children to the filtered set
     for (const childId of sortedChildIds) {
       allChildrenFiltered.add(childId)
@@ -796,7 +965,7 @@ function buildGraph(items) {
   const roots = []
   const primeRoots = []
   const primeRootIds = new Set()
-  
+
   // First, find documents marked as prime roots
   for (const [id, item] of nodes.entries()) {
     if (isPrimeRoot(item)) {
@@ -804,7 +973,7 @@ function buildGraph(items) {
       primeRootIds.add(id)
     }
   }
-  
+
   // Also look for documents that point to a prime root (in case the actual root isn't in the dataset)
   if (primeRoots.length === 0) {
     for (const [, item] of nodes.entries()) {
@@ -819,7 +988,7 @@ function buildGraph(items) {
       }
     }
   }
-  
+
   // If we have prime roots, use them; otherwise fall back to orphaned nodes
   if (primeRoots.length > 0) {
     roots.push(...primeRoots)
@@ -874,6 +1043,64 @@ function normalizeId(value) {
   return ''
 }
 
+/**
+ * Derive a RERUM endpoint URL (e.g. "history" or "since") from a document URI by
+ * replacing the "id" path segment. Throws when the URI is missing or has no "/id/" segment.
+ * @param {string} documentUri
+ * @param {string} kind
+ * @returns {string}
+ */
+function deriveEndpointUrl(documentUri, kind) {
+  if (!documentUri || typeof documentUri !== 'string') {
+    throw new Error('Document URI must be a non-empty string')
+  }
+
+  let url
+  try {
+    url = new URL(documentUri)
+  } catch {
+    throw new Error(`Invalid document URI: ${documentUri}`)
+  }
+
+  const segments = url.pathname.split('/')
+  const idx = segments.lastIndexOf('id')
+  if (idx === -1) {
+    throw new Error('Document URI must contain an "/id/" path segment')
+  }
+
+  segments[idx] = kind
+  url.pathname = segments.join('/')
+  return url.toString()
+}
+
+/**
+ * Resolve a human-friendly label for a version item.
+ * @param {Object} item
+ * @param {string} id
+ * @param {string} [labelKey]
+ * @returns {string}
+ */
+function labelFor(item, id, labelKey) {
+  const key = labelKey?.trim()
+  if (key && item && typeof item === 'object' && key in item) {
+    const v = item[key]
+    if (v != null) return String(v)
+  }
+  if (item?.label) return String(item.label)
+  if (item?.name) return String(item.name)
+  if (id) {
+    try {
+      const u = new URL(String(id))
+      const segs = u.pathname.split('/').filter(Boolean)
+      if (segs.length) return segs[segs.length - 1]
+    } catch {
+      const segs = String(id).split(/[/#!]/).filter(Boolean)
+      if (segs.length) return segs[segs.length - 1]
+    }
+  }
+  return 'version'
+}
+
 function escapeHtml(s) {
   return String(s)
     .replaceAll('&', '&amp;')
@@ -886,32 +1113,36 @@ function escapeHtml(s) {
 function getLatestTimestamp(item) {
   const createdAt = item?.__rerum?.createdAt ?? item?.createdAt
   const isOverwritten = item?.__rerum?.isOverwritten ?? item?.isOverwritten
-  
-  const timestamps = [createdAt, isOverwritten].filter(Boolean).map(ts => {
+
+  const timestamps = [createdAt, isOverwritten].filter(Boolean).map((ts) => {
     if (typeof ts === 'string') {
       const date = new Date(ts)
       return isNaN(date.getTime()) ? null : date.getTime()
     }
     if (typeof ts === 'number') return ts
     return null
-  }).filter(t => t !== null)
-  
+  }).filter((t) => t !== null)
+
   return timestamps.length > 0 ? Math.max(...timestamps) : 0
 }
 
 function formatTimeAgo(timestamp) {
   if (!timestamp) return ''
-  
-  const now = Date.now()
-  const diff = now - timestamp
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
-  
-  if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`
-  if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`
-  if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
-  return 'just now'
+
+  const diff = Date.now() - timestamp
+  const future = diff < 0
+  const abs = Math.abs(diff)
+  const minutes = Math.floor(abs / 60000)
+  const hours = Math.floor(abs / 3600000)
+  const days = Math.floor(abs / 86400000)
+
+  const unit = days > 0 ? `${days} day${days > 1 ? 's' : ''}`
+    : hours > 0 ? `${hours} hour${hours > 1 ? 's' : ''}`
+      : minutes > 0 ? `${minutes} minute${minutes > 1 ? 's' : ''}`
+        : null
+
+  if (!unit) return 'just now'
+  return future ? `in ${unit}` : `${unit} ago`
 }
 
 function sortByTimestamp(items) {

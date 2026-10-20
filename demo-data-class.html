@@ -101,6 +101,14 @@
     const docUriInput = document.getElementById('docUri')
     const labelKeyInput = document.getElementById('labelKey')
 
+    // Remote data is untrusted; escape before interpolating into innerHTML.
+    const escapeHtml = (value) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+
     fetchBtn.addEventListener('click', async () => {
       const docUri = docUriInput.value.trim()
       const labelKey = labelKeyInput.value.trim() || null
@@ -131,20 +139,20 @@
           <p><strong>Root versions:</strong> ${roots.length}</p>
           <p><strong>Root IDs:</strong></p>
           <ul>
-            ${roots.map(id => `<li class="version-id">${id}</li>`).join('')}
+            ${roots.map(id => `<li class="version-id">${escapeHtml(id)}</li>`).join('')}
           </ul>
-          
+
           <h3>All Version Summaries</h3>
         `
 
         summaries.forEach(summary => {
           html += `
             <div class="version">
-              <div class="version-label">${summary.label}</div>
-              <div class="version-id">${summary.id}</div>
+              <div class="version-label">${escapeHtml(summary.label)}</div>
+              <div class="version-id">${escapeHtml(summary.id)}</div>
               <div class="version-children">
                 Children: ${summary.children.length}
-                ${summary.parent ? `| Parent: ${summary.parent}` : '| (Root)'}
+                ${summary.parent ? `| Parent: ${escapeHtml(summary.parent)}` : '| (Root)'}
               </div>
             </div>
           `
@@ -152,7 +160,7 @@
 
         output.innerHTML = html
       } catch (error) {
-        output.innerHTML = `<div class="error">Error: ${error.message}</div>`
+        output.innerHTML = `<div class="error">Error: ${escapeHtml(error.message)}</div>`
         console.error(error)
       }
     })
