@@ -46,6 +46,7 @@ export default [
         document: 'readonly',
         CustomEvent: 'readonly',
         HTMLElement: 'readonly',
+        Element: 'readonly',
         customElements: 'readonly',
         URL: 'readonly',
         fetch: 'readonly',
@@ -54,6 +55,26 @@ export default [
         Set: 'readonly',
         Array: 'readonly',
         String: 'readonly',
+        console: 'readonly',
+      }
+    }
+  },
+  {
+    files: ['test/**/*.js'],
+    languageOptions: {
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        CustomEvent: 'readonly',
+        KeyboardEvent: 'readonly',
+        HTMLElement: 'readonly',
+        Element: 'readonly',
+        customElements: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+        AbortController: 'readonly',
+        Response: 'readonly',
+        structuredClone: 'readonly',
         console: 'readonly',
       }
     }

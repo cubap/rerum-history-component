@@ -3,12 +3,36 @@
   "version": "0.1.0",
   "description": "Web Component that visualizes RERUM /history/{id} as an interactive version tree.",
   "type": "module",
+  "main": "src/rerum-history-tree.js",
+  "module": "src/rerum-history-tree.js",
+  "unpkg": "dist/rerum-history-tree.js",
+  "jsdelivr": "dist/rerum-history-tree.js",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/rerum-history-tree.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "dist",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "./src/rerum-history-tree.js"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:lib": "vite build --mode lib",
     "preview": "vite preview",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "web-components",
@@ -20,9 +44,19 @@
   ],
   "author": "cubap",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cubap/rerum-history-component.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cubap/rerum-history-component/issues"
+  },
+  "homepage": "https://cubap.github.io/rerum-history-component/",
   "devDependencies": {
     "@eslint/js": "^9.36.0",
     "eslint": "^9.36.0",
-    "vite": "^7.1.7"
+    "jsdom": "^26.1.0",
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
   }
 }
